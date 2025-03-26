@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"quic_gwclient/proto"
-	"quic_gwclient/utils"
+	"github.com/laotiannai/quic_gwclient/proto"
+	"github.com/laotiannai/quic_gwclient/utils"
 
 	"github.com/google/uuid"
 	"github.com/quic-go/quic-go"
@@ -148,7 +148,7 @@ func (c *TransferClient) Connect(ctx context.Context) error {
 		MaxIncomingStreams:      100,
 		EnableDatagrams:         true,
 		DisablePathMTUDiscovery: false,
-		Versions:                []quic.VersionNumber{quic.Version1}, // 只使用 QUIC 版本 1
+		Versions:                []quic.Version{quic.Version1}, // 只使用 QUIC 版本 1
 	}
 	log.Printf("QUIC配置 - KeepAlive: %v, MaxIdle: %v, HandshakeTimeout: %v",
 		quicConfig.KeepAlivePeriod, quicConfig.MaxIdleTimeout, quicConfig.HandshakeIdleTimeout)

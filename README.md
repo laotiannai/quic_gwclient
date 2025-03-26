@@ -15,6 +15,16 @@
 
 ### 1. 添加依赖
 
+#### 方法一：使用 go get
+
+在你的项目目录下运行：
+
+```bash
+go get github.com/laotiannai/quic_gwclient
+```
+
+#### 方法二：手动添加到 go.mod
+
 在你的项目的 `go.mod` 文件中添加以下依赖：
 
 ```bash
@@ -153,7 +163,7 @@ func validateResponse(response []byte) bool {
 
 ## 安装
 
-确保你的系统已安装Go 1.20或更高版本。
+确保你的系统已安装Go 1.23或更高版本。
 
 ```bash
 # 克隆项目
@@ -288,8 +298,10 @@ if _, err := client.SendTransferRequest(content); err != nil {
 
 ## 依赖
 
-- github.com/google/uuid v1.3.0
-- github.com/quic-go/quic-go v0.41.0
+该项目使用以下主要依赖：
+
+- github.com/quic-go/quic-go v0.50.1
+- github.com/google/uuid v1.6.0
 
 ## 许可证
 

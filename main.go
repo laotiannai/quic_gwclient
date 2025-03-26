@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	"quic_gwclient/pkg/client"
+	"github.com/laotiannai/quic_gwclient/pkg/client"
 )
 
 func main() {
