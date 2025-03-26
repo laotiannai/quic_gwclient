@@ -15,12 +15,18 @@
 
 ### 1. 添加依赖
 
-#### 方法一：使用 go get
+#### 方法一：使用 go get（推荐）
 
-在你的项目目录下运行：
+在你的项目目录下运行以下命令获取最新版本：
 
 ```bash
-go get github.com/laotiannai/quic_gwclient
+go get github.com/laotiannai/quic_gwclient@latest
+```
+
+指定具体版本号（推荐在生产环境中使用固定版本）：
+
+```bash
+go get github.com/laotiannai/quic_gwclient@v1.0.0  # 请使用实际最新版本
 ```
 
 #### 方法二：手动添加到 go.mod
@@ -28,7 +34,13 @@ go get github.com/laotiannai/quic_gwclient
 在你的项目的 `go.mod` 文件中添加以下依赖：
 
 ```bash
-require github.com/laotiannai/quic_gwclient v1.0.0  // 使用最新版本
+require github.com/laotiannai/quic_gwclient latest  # 使用最新版本
+```
+
+或指定具体版本（推荐）：
+
+```bash
+require github.com/laotiannai/quic_gwclient v1.0.0  # 请使用实际最新版本
 ```
 
 然后执行：
@@ -37,12 +49,30 @@ require github.com/laotiannai/quic_gwclient v1.0.0  // 使用最新版本
 go mod tidy
 ```
 
+#### 方法三：使用特定分支或提交（适用于测试新功能）
+
+如需引用开发中的特定分支或提交：
+
+```bash
+# 引用特定分支
+go get github.com/laotiannai/quic_gwclient@branch_name
+
+# 引用特定提交
+go get github.com/laotiannai/quic_gwclient@commit_hash
+```
+
 ### 2. 导入包
 
 在你的代码中导入 quic_gwclient 包：
 
 ```go
 import "github.com/laotiannai/quic_gwclient/pkg/client"
+```
+
+使用别名以简化代码：
+
+```go
+import quic "github.com/laotiannai/quic_gwclient/pkg/client"
 ```
 
 ### 3. 使用示例
@@ -314,4 +344,37 @@ MIT License
 1. 代码符合 Go 的代码规范
 2. 添加了必要的测试用例
 3. 所有测试都能通过
-4. 更新了相关文档 
+4. 更新了相关文档
+
+## 版本历史
+
+### v1.0.0 (最新稳定版)
+
+- 初始稳定版本发布
+- 支持基本的QUIC通信功能
+- 提供加密和非加密两种通信方式
+- 包含完整的错误处理和重试机制
+
+### 开发版
+
+当前开发中的功能：
+
+- 性能优化
+- 更多的安全选项
+- 改进的API接口
+
+## 兼容性
+
+- Go 1.23或更高版本
+- 支持Windows/Linux/macOS平台
+- 依赖：
+  - github.com/quic-go/quic-go v0.50.1
+  - github.com/google/uuid v1.6.0
+
+## 获取帮助
+
+如果在使用过程中遇到问题，可以：
+
+1. 查看详细的[使用说明文档](./使用说明.md)
+2. 提交Issue报告问题
+3. 通过Pull Request贡献代码或文档改进 
