@@ -84,7 +84,7 @@ go get github.com/laotiannai/quic_gwclient@latest
 go get github.com/laotiannai/quic_gwclient@v1.0.0
 
 # 轻量版（最小日志）
-go get github.com/laotiannai/quic_gwclient@v1.0.0-lite
+go get github.com/laotiannai/quic_gwclient@v1.0.0_lite
 ```
 
 #### 方法二：手动添加到 go.mod
