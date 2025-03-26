@@ -99,7 +99,7 @@ require github.com/laotiannai/quic_gwclient latest
 require github.com/laotiannai/quic_gwclient v1.0.0
 
 # 轻量版（最小日志）
-require github.com/laotiannai/quic_gwclient v1.0.0-lite
+require github.com/laotiannai/quic_gwclient v1.0.0_lite
 ```
 
 然后执行：
