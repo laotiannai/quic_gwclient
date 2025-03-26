@@ -23,9 +23,13 @@ func main() {
 		ServerID:   8903,
 		ServerName: "stresss_H5_nginx",
 		SessionID:  "abac17fd-e8e0-4600-b822-09f5755148d7",
+		// 设置重试参数
+		MaxRetries:    15,                     // 最大重试15次
+		RetryDelay:    500 * time.Millisecond, // 每次重试延迟500ms
+		RetryInterval: 2 * time.Second,        // 重试间隔2s
 	}
-	log.Printf("客户端配置 - ServerID: %d, ServerName: %s, SessionID: %s",
-		config.ServerID, config.ServerName, config.SessionID)
+	log.Printf("客户端配置 - ServerID: %d, ServerName: %s, SessionID: %s, MaxRetries: %d",
+		config.ServerID, config.ServerName, config.SessionID, config.MaxRetries)
 
 	// 创建客户端
 	serverAddr := "10.10.27.129:8002"
@@ -38,13 +42,11 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	// 连接服务器，添加重试逻辑
-	maxRetries := 3
+	// 连接服务器，使用配置的重试参数
 	var err error
-
-	log.Printf("开始连接服务器，最大重试次数: %d", maxRetries)
-	for i := 0; i < maxRetries; i++ {
-		log.Printf("===== 尝试连接服务器 (尝试 %d/%d) =====", i+1, maxRetries)
+	log.Printf("开始连接服务器，最大重试次数: %d", config.MaxRetries)
+	for i := 0; i < config.MaxRetries; i++ {
+		log.Printf("===== 尝试连接服务器 (尝试 %d/%d) =====", i+1, config.MaxRetries)
 		startTime := time.Now()
 		err = c.Connect(ctx)
 		elapsedTime := time.Since(startTime)
@@ -55,22 +57,20 @@ func main() {
 		}
 
 		log.Printf("连接失败: %v, 耗时: %v", err, elapsedTime)
-		if i < maxRetries-1 {
-			retryDelay := time.Duration(i+1) * 2 * time.Second
-			log.Printf("将在 %v 后重试...", retryDelay)
-			time.Sleep(retryDelay)
+		if i < config.MaxRetries-1 {
+			log.Printf("将在 %v 后重试...", config.RetryInterval)
+			time.Sleep(config.RetryInterval)
 		}
 	}
 
 	if err != nil {
-		log.Fatalf("连接服务器失败，已尝试 %d 次: %v", maxRetries, err)
+		log.Fatalf("连接服务器失败，已尝试 %d 次: %v", config.MaxRetries, err)
 	}
 	defer c.Close()
 
 	// 发送初始化请求
 	log.Println("===== 开始发送初始化请求 =====")
 	startTime := time.Now()
-	// if err := c.SendInitRequest(); err != nil {
 	if err := c.SendInitRequestNoAES(); err != nil {
 		log.Fatalf("初始化请求失败: %v", err)
 	}
@@ -88,7 +88,6 @@ func main() {
 	log.Printf("传输请求内容:\n%s", content)
 
 	startTime = time.Now()
-	// response, err := c.SendTransferRequest(content)
 	response, err := c.SendTransferRequestNoAES(content)
 	if err != nil {
 		log.Fatalf("传输请求失败: %v", err)
