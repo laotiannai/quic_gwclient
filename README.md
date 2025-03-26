@@ -11,6 +11,60 @@
 - 支持超时控制
 - 详细的日志输出
 
+## 版本选择
+
+项目提供两个主要版本：
+
+1. **标准版** (v1.0.0)：
+   - 详细的日志输出，记录连接和通信的完整过程
+   - 适合开发和调试环境
+   - 便于问题排查和分析
+
+2. **轻量版** (v1.0.0-lite)：
+   - 最小化日志输出，只保留关键信息和错误日志
+   - 适合生产环境
+   - 减少日志开销，提高性能
+
+### 版本选择指南
+
+- **开发/测试环境**：推荐使用标准版，方便调试和问题排查
+- **生产环境**：推荐使用轻量版，降低日志开销，提高性能
+- **特殊需求**：可根据需要在两个版本间切换
+
+## 日志级别控制
+
+除了选择标准版和轻量版外，还可以通过环境变量控制日志输出级别：
+
+### 通过环境变量设置日志级别
+
+```bash
+# 可选的日志级别：none, error, warning, info, debug
+export QUIC_GW_LOG_LEVEL=warning
+
+# 启用轻量版模式
+export QUIC_GW_LITE_MODE=true
+```
+
+### 在代码中设置日志级别
+
+```go
+import "github.com/laotiannai/quic_gwclient/pkg/client"
+
+// 设置日志级别
+client.SetLogLevel(client.LogLevelWarning)
+
+// 或启用轻量版模式
+client.EnableLiteMode()
+```
+
+### 可用的日志级别
+
+- **LogLevelNone**: 禁用所有日志
+- **LogLevelError**: 只显示错误信息
+- **LogLevelWarning**: 显示警告和错误（轻量版默认）
+- **LogLevelInfo**: 显示一般信息、警告和错误
+- **LogLevelDebug**: 显示所有日志，包括调试信息（标准版默认）
+
 ## 在其他项目中使用
 
 ### 1. 添加依赖
@@ -26,7 +80,11 @@ go get github.com/laotiannai/quic_gwclient@latest
 指定具体版本号（推荐在生产环境中使用固定版本）：
 
 ```bash
-go get github.com/laotiannai/quic_gwclient@v1.0.0  # 请使用实际最新版本
+# 标准版（详细日志）
+go get github.com/laotiannai/quic_gwclient@v1.0.0
+
+# 轻量版（最小日志）
+go get github.com/laotiannai/quic_gwclient@v1.0.0-lite
 ```
 
 #### 方法二：手动添加到 go.mod
@@ -34,13 +92,14 @@ go get github.com/laotiannai/quic_gwclient@v1.0.0  # 请使用实际最新版本
 在你的项目的 `go.mod` 文件中添加以下依赖：
 
 ```bash
-require github.com/laotiannai/quic_gwclient latest  # 使用最新版本
-```
+# 使用最新版本
+require github.com/laotiannai/quic_gwclient latest
 
-或指定具体版本（推荐）：
+# 标准版（详细日志）
+require github.com/laotiannai/quic_gwclient v1.0.0
 
-```bash
-require github.com/laotiannai/quic_gwclient v1.0.0  # 请使用实际最新版本
+# 轻量版（最小日志）
+require github.com/laotiannai/quic_gwclient v1.0.0-lite
 ```
 
 然后执行：
@@ -54,8 +113,11 @@ go mod tidy
 如需引用开发中的特定分支或提交：
 
 ```bash
-# 引用特定分支
-go get github.com/laotiannai/quic_gwclient@branch_name
+# 标准版分支
+go get github.com/laotiannai/quic_gwclient@v1.0.0_release
+
+# 轻量版分支
+go get github.com/laotiannai/quic_gwclient@v1.0.0_lite
 
 # 引用特定提交
 go get github.com/laotiannai/quic_gwclient@commit_hash
@@ -348,16 +410,23 @@ MIT License
 
 ## 版本历史
 
-### v1.0.0 (最新稳定版)
+### v1.0.0 (标准版)
 
 - 初始稳定版本发布
 - 支持基本的QUIC通信功能
 - 提供加密和非加密两种通信方式
 - 包含完整的错误处理和重试机制
+- 详细的日志输出，适合开发和调试环境
 
-### 开发版
+### v1.0.0-lite (轻量版)
 
-当前开发中的功能：
+- 与标准版功能相同，但移除了大部分详细日志
+- 只保留警告和错误级别的日志输出
+- 提供更好的性能，适用于生产环境
+- 添加了日志级别控制机制
+- 支持通过环境变量和API控制日志输出
+
+### 即将推出的功能
 
 - 性能优化
 - 更多的安全选项
