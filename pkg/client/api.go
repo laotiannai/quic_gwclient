@@ -3,7 +3,6 @@ package client
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 	"time"
 )
@@ -111,17 +110,17 @@ func SendQuicRequest(opts *RequestOptions) *RequestResult {
 	// 连接服务器，添加重试逻辑
 	var err error
 	for i := 0; i < opts.MaxRetries; i++ {
-		log.Printf("尝试连接服务器 (尝试 %d/%d)", i+1, opts.MaxRetries)
+		// log.Printf("尝试连接服务器 (尝试 %d/%d)", i+1, opts.MaxRetries)
 		err = c.Connect(ctx)
 
 		if err == nil {
 			break
 		}
 
-		log.Printf("连接失败: %v", err)
+		// log.Printf("连接失败: %v", err)
 		if i < opts.MaxRetries-1 {
 			retryDelay := time.Duration(i+1) * 2 * time.Second
-			log.Printf("将在 %v 后重试...", retryDelay)
+			// log.Printf("将在 %v 后重试...", retryDelay)
 			time.Sleep(retryDelay)
 		}
 	}
