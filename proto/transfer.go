@@ -1,7 +1,7 @@
 package proto
 
 import (
-	"quic_gwclient/utils"
+	"github.com/laotiannai/quic_gwclient/utils"
 )
 
 const REQUEST_HEAD_LEN int = 20
