@@ -338,7 +338,7 @@ func (c *TransferClient) SendTransferRequestWithDownload(content string, options
 
 	// 填充结果
 	result.RawData = totalRawResponse
-	fmt.Printf("totalRawResponse: %v\n", totalRawResponse)
+	fmt.Printf("totalRawResponse: %v\n", len(totalRawResponse))
 
 	// 处理数据，逐段去除协议包，并提取纯净数据
 	debugLog("开始解析和提取纯净响应数据...")
