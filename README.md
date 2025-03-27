@@ -259,10 +259,7 @@ func (c *TransferClient) SendInitRequestNoAES() (int, int, error)
 
 ```go
 func (c *TransferClient) SendTransferRequest(content string) ([]byte, error)
-func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, int, int, error)
-```
-
-`SendTransferRequestNoAES` 返回响应数据、发送字节数、接收字节数以及可能的错误。
+func (c *TransferRequestNoAES` 返回响应数据、发送字节数、接收字节数以及可能的错误。
 
 参数:
 - `content`: 要发送的请求内容，通常是HTTP请求字符串
@@ -272,6 +269,70 @@ func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, int, 
 - `int`: 发送的字节数
 - `int`: 接收的字节数
 - `error`: 如果请求成功返回nil，否则返回错误信息
+
+#### 大文件下载功能
+
+```go
+func (c *TransferClient) SendTransferRequestWithDownload(content string, options *DownloadOptions) (*DownloadResult, error)
+func (c *TransferClient) SendTransferRequestWithAESDownload(content string, options *DownloadOptions, initAESKey string) (*DownloadResult, error)
+func (c *TransferClient) DownloadFile(content string, saveDir string, fileNamePrefix string, saveToFile bool) (string, error)
+```
+
+这些方法用于处理大型数据传输和文件下载：
+
+- `SendTransferRequestWithDownload`: 发送请求并支持大型数据下载，可选择是否保存为文件
+- `SendTransferRequestWithAESDownload`: 使用AES加密方式下载
+- `DownloadFile`: 发送请求并将响应直接保存为文件（便捷方法）
+
+参数:
+- `content`: 要发送的请求内容
+- `options`: 下载选项，控制保存行为、重试次数等
+- `initAESKey`: AES加密方式使用的密钥
+- `saveDir`: 文件保存目录
+- `fileNamePrefix`: 保存文件名前缀
+- `saveToFile`: 是否将响应保存为文件
+
+返回值:
+- `*DownloadResult`: 下载结果，包含原始数据、处理后数据、字节统计和MD5值
+- `string`: 保存的文件路径（仅DownloadFile方法）
+- `error`: 如果下载成功返回nil，否则返回错误信息
+
+#### 下载选项与结果
+
+```go
+type DownloadOptions struct {
+    SaveToFile      bool    // 是否将响应保存为本地文件
+    SaveDir         string  // 下载文件保存目录
+    FileNamePrefix  string  // 文件名前缀
+    MaxDownloadSize int64   // 最大下载大小（字节）
+    MaxRetries      int     // 重试次数
+    ReadTimeout     time.Duration // 读取超时时间
+    DetectHTTP      bool    // 是否自动检测HTTP协议
+}
+
+type DownloadResult struct {
+    RawData         []byte  // 原始响应数据（包括头部）
+    PureData        []byte  // 纯净响应数据（不包括头部）
+    SentBytes       int     // 发送的字节数
+    ReceivedBytes   int     // 接收的字节数 
+    FilePath        string  // 保存的文件路径（如果设置了SaveToFile）
+    MD5Sum          string  // 文件的MD5值
+    HTTPInfo        *HTTPResponseInfo // HTTP响应信息（如果是HTTP协议）
+}
+
+func DefaultDownloadOptions() *DownloadOptions
+```
+
+`DefaultDownloadOptions` 返回默认的下载选项配置。
+
+**重要说明**:
+1. `SaveToFile` 参数控制是否将响应保存为本地文件：
+   - 设置为 `true` 时，会将响应保存到本地文件
+   - 设置为 `false` 时，不会保存文件，而是返回带有 "memory:" 前缀的虚拟路径
+2. 当 `DetectHTTP` 为 `true` 时，会自动检测和解析HTTP协议
+3. 文件路径格式：
+   - 保存文件时：`SaveDir/FileNamePrefix_MD5.bin`
+   - 不保存文件时：`memory:SaveDir/FileNamePrefix_MD5.bin`
 
 #### 关闭连接
 
@@ -382,6 +443,27 @@ MIT License
 3. 通过Pull Request贡献代码或文档改进
 
 ## 更新历史
+
+### 版本 1.0.5 (2024-XX-XX)
+
+- **新功能**: 增强了大文件下载功能
+  - 支持自动处理服务器端切包返回的场景
+  - 增加了HTTP协议自动检测和解析
+  - 在保存文件时可以智能提取HTTP响应体
+  - 支持HTTP分块传输编码的自动解析
+  - 提供设置读取超时和重试次数的选项
+  - 优化了下载过程中的内存使用
+
+### 版本 1.0.4 (2024-XX-XX)
+
+- **新功能**: 添加了大文件下载支持
+  - 新增 `SendTransferRequestWithDownload` 和 `SendTransferRequestWithAESDownload` 方法
+  - 支持自动处理数据接收和包重组
+  - 支持下载内容保存为本地文件
+  - 包含 MD5 校验和字节统计
+  - 提供默认最大 4GB 的下载大小限制
+  - 自动重试机制确保完整接收数据
+  - 添加了 `DownloadFile` 便捷方法
 
 ### 版本 1.0.3 (2024-XX-XX)
 

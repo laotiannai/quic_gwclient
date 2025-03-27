@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -12,6 +13,9 @@ import (
 )
 
 func main() {
+	// 启用调试模式
+	// client.SetDebugMode(true)
+
 	// 设置日志格式
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
 	log.SetPrefix("[QUIC Client] ")
@@ -79,7 +83,7 @@ func main() {
 
 	// 发送传输请求
 	log.Println("===== 开始发送传输请求 =====")
-	content := "GET /index.html HTTP/1.1\r\n" +
+	content := "GET /50M.apk HTTP/1.1\r\n" +
 		"User-Agent: PostmanRuntime/7.26.8\r\n" +
 		"Accept: */*\r\n" +
 		"Postman-Token: d2aeeecc-1612-4518-94ef-e882b0767b44\r\n" +
@@ -88,19 +92,40 @@ func main() {
 		"Connection: close\r\n\r\n"
 	log.Printf("传输请求内容:\n%s", content)
 
-	startTime = time.Now()
-	response, sentBytes, receivedBytes, err := c.SendTransferRequestNoAES(content)
+	// startTime = time.Now()
+	// response, sentBytes, receivedBytes, err := c.SendTransferRequestNoAES(content)
+	// if err != nil {
+	// 	log.Fatalf("传输请求失败: %v", err)
+	// }
+	// log.Printf("传输请求成功，耗时: %v, 发送: %d 字节, 接收: %d 字节", time.Since(startTime), sentBytes, receivedBytes)
+
+	// log.Printf("收到响应 (长度: %d 字节):\n%s", len(response), string(response))
+
+	// // 分析HTTP响应
+	// if len(response) > 0 {
+	// 	log.Println("===== HTTP响应分析 =====")
+	// 	analyzeHTTPResponse(response)
+	// }
+
+	// 示例3：使用简化的下载方法
+	filePath, err := c.DownloadFile(content, "./downloads", "simple", false)
 	if err != nil {
-		log.Fatalf("传输请求失败: %v", err)
+		log.Fatalf("简化下载失败: %v", err)
 	}
-	log.Printf("传输请求成功，耗时: %v, 发送: %d 字节, 接收: %d 字节", time.Since(startTime), sentBytes, receivedBytes)
 
-	log.Printf("收到响应 (长度: %d 字节):\n%s", len(response), string(response))
-
-	// 分析HTTP响应
-	if len(response) > 0 {
-		log.Println("===== HTTP响应分析 =====")
-		analyzeHTTPResponse(response)
+	if strings.HasPrefix(filePath, "memory:") {
+		// 从虚拟路径中提取实际路径
+		actualPath := filePath[len("memory:"):]
+		// 从路径中提取MD5部分
+		parts := strings.Split(actualPath, "_")
+		if len(parts) > 1 {
+			md5Part := strings.TrimSuffix(parts[1], ".bin")
+			log.Printf("收到数据大小: %d 字节", len(md5Part))
+		} else {
+			log.Printf("收到数据")
+		}
+	} else {
+		log.Printf("文件已保存到: %s", filePath)
 	}
 
 	// 等待中断信号
