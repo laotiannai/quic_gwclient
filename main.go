@@ -71,10 +71,11 @@ func main() {
 	// 发送初始化请求
 	log.Println("===== 开始发送初始化请求 =====")
 	startTime := time.Now()
-	if err := c.SendInitRequestNoAES(); err != nil {
+	sentBytes, receivedBytes, err := c.SendInitRequestNoAES()
+	if err != nil {
 		log.Fatalf("初始化请求失败: %v", err)
 	}
-	log.Printf("初始化请求成功，耗时: %v", time.Since(startTime))
+	log.Printf("初始化请求成功，耗时: %v, 发送: %d 字节, 接收: %d 字节", time.Since(startTime), sentBytes, receivedBytes)
 
 	// 发送传输请求
 	log.Println("===== 开始发送传输请求 =====")
@@ -88,11 +89,11 @@ func main() {
 	log.Printf("传输请求内容:\n%s", content)
 
 	startTime = time.Now()
-	response, err := c.SendTransferRequestNoAES(content)
+	response, sentBytes, receivedBytes, err := c.SendTransferRequestNoAES(content)
 	if err != nil {
 		log.Fatalf("传输请求失败: %v", err)
 	}
-	log.Printf("传输请求成功，耗时: %v", time.Since(startTime))
+	log.Printf("传输请求成功，耗时: %v, 发送: %d 字节, 接收: %d 字节", time.Since(startTime), sentBytes, receivedBytes)
 
 	log.Printf("收到响应 (长度: %d 字节):\n%s", len(response), string(response))
 

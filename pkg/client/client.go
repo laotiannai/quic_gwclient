@@ -295,22 +295,25 @@ func (c *TransferClient) SendTransferRequest(content string) ([]byte, error) {
 }
 
 // SendInitRequestNoAES 发送不使用AES加密的初始化请求
-func (c *TransferClient) SendInitRequestNoAES() error {
+func (c *TransferClient) SendInitRequestNoAES() (int, int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	var sentBytes, receivedBytes int
+
 	if c.conn == nil || c.stream == nil {
-		return fmt.Errorf("连接未建立或已关闭")
+		return 0, 0, fmt.Errorf("连接未建立或已关闭")
 	}
 
 	initBytes := transferInit(c.config.ServerID, proto.PROTO_TYPE_HTTP, c.config.ServerName, "si:"+c.config.SessionID)
 	if initBytes == nil {
-		return fmt.Errorf("构造初始化请求失败")
+		return 0, 0, fmt.Errorf("构造初始化请求失败")
 	}
 
-	_, err := c.stream.Write(initBytes)
+	n, err := c.stream.Write(initBytes)
+	sentBytes += n
 	if err != nil {
-		return fmt.Errorf("发送初始化请求失败: %v", err)
+		return sentBytes, 0, fmt.Errorf("发送初始化请求失败: %v", err)
 	}
 
 	// 设置读取超时
@@ -338,6 +341,10 @@ func (c *TransferClient) SendInitRequestNoAES() error {
 		}
 
 		n, readErr := c.stream.Read(responseBuffer)
+		if n > 0 {
+			receivedBytes += n
+		}
+
 		if readErr != nil {
 			if readErr == io.EOF {
 				if retry < maxRetries-1 {
@@ -347,7 +354,8 @@ func (c *TransferClient) SendInitRequestNoAES() error {
 						c.stream.Close()
 						c.stream = newStream
 
-						_, writeErr := c.stream.Write(initBytes)
+						written, writeErr := c.stream.Write(initBytes)
+						sentBytes += written
 						if writeErr != nil {
 							continue
 						}
@@ -363,7 +371,7 @@ func (c *TransferClient) SendInitRequestNoAES() error {
 				time.Sleep(retryDelay)
 				continue
 			}
-			return fmt.Errorf("读取初始化响应失败: %v", readErr)
+			return sentBytes, receivedBytes, fmt.Errorf("读取初始化响应失败: %v", readErr)
 		}
 
 		if n <= 0 {
@@ -371,7 +379,7 @@ func (c *TransferClient) SendInitRequestNoAES() error {
 				time.Sleep(retryDelay)
 				continue
 			}
-			return fmt.Errorf("读取初始化响应失败: 读取到0字节")
+			return sentBytes, receivedBytes, fmt.Errorf("读取初始化响应失败: 读取到0字节")
 		}
 
 		respLen, cmd, _, result, _ = parseMessage(responseBuffer[:n], n)
@@ -386,31 +394,33 @@ func (c *TransferClient) SendInitRequestNoAES() error {
 	}
 
 	if respLen == 0 {
-		return fmt.Errorf("解析初始化响应失败: 响应长度为0")
+		return sentBytes, receivedBytes, fmt.Errorf("解析初始化响应失败: 响应长度为0")
 	}
 
 	if cmd != proto.EMM_COMMAND_INIT_ACK {
-		return fmt.Errorf("收到非预期的响应命令: %d", cmd)
+		return sentBytes, receivedBytes, fmt.Errorf("收到非预期的响应命令: %d", cmd)
 	}
 	if result != proto.AUTH_STATUS_CODE_SUCCESS {
-		return fmt.Errorf("初始化失败，错误码: %d", result)
+		return sentBytes, receivedBytes, fmt.Errorf("初始化失败，错误码: %d", result)
 	}
 
-	return nil
+	return sentBytes, receivedBytes, nil
 }
 
 // SendTransferRequestNoAES 发送不使用AES加密的传输请求
-func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, error) {
+func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, int, int, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	var sentBytes, receivedBytes int
+
 	if c.conn == nil {
-		return nil, fmt.Errorf("连接未建立")
+		return nil, 0, 0, fmt.Errorf("连接未建立")
 	}
 
 	if c.conn.Context().Err() != nil {
 		if err := c.Connect(context.Background()); err != nil {
-			return nil, fmt.Errorf("重新建立连接失败: %v", err)
+			return nil, 0, 0, fmt.Errorf("重新建立连接失败: %v", err)
 		}
 	}
 
@@ -432,7 +442,7 @@ func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, error
 					time.Sleep(retryDelay)
 					continue
 				}
-				return nil, fmt.Errorf("无法创建流: %v", err)
+				return nil, sentBytes, receivedBytes, fmt.Errorf("无法创建流: %v", err)
 			}
 			c.stream = stream
 		}
@@ -440,7 +450,8 @@ func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, error
 		if err := c.stream.SetReadDeadline(time.Now().Add(readTimeout)); err != nil {
 		}
 
-		_, err := c.stream.Write(requestInfo)
+		n, err := c.stream.Write(requestInfo)
+		sentBytes += n
 		if err != nil {
 			c.stream.Close()
 			c.stream = nil
@@ -448,16 +459,19 @@ func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, error
 				time.Sleep(retryDelay)
 				continue
 			}
-			return nil, fmt.Errorf("发送请求失败: %v", err)
+			return nil, sentBytes, receivedBytes, fmt.Errorf("发送请求失败: %v", err)
 		}
 
 		responseBuffer := make([]byte, 32*1024)
-		n, err := c.stream.Read(responseBuffer)
+		readBytes, err := c.stream.Read(responseBuffer)
+		if readBytes > 0 {
+			receivedBytes += readBytes
+		}
 
 		if err != nil {
 			if err == io.EOF {
-				if n > 0 {
-					responseBytes = append(responseBytes, responseBuffer[:n]...)
+				if readBytes > 0 {
+					responseBytes = append(responseBytes, responseBuffer[:readBytes]...)
 					break
 				}
 			}
@@ -475,12 +489,12 @@ func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, error
 				continue
 			}
 			if len(responseBytes) == 0 {
-				return nil, fmt.Errorf("读取响应失败: %v", err)
+				return nil, sentBytes, receivedBytes, fmt.Errorf("读取响应失败: %v", err)
 			}
 			break
 		}
 
-		if n <= 0 {
+		if readBytes <= 0 {
 			if retry < maxRetries-1 {
 				time.Sleep(retryDelay)
 				continue
@@ -488,7 +502,7 @@ func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, error
 			break
 		}
 
-		respLen, cmd, _, _, body := parseMessage(responseBuffer[:n], n)
+		respLen, cmd, _, _, body := parseMessage(responseBuffer[:readBytes], readBytes)
 
 		if body != "" {
 			responseBytes = append(responseBytes, []byte(body)...)
@@ -498,7 +512,7 @@ func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, error
 			break
 		}
 
-		if respLen > 0 && respLen <= n {
+		if respLen > 0 && respLen <= readBytes {
 			break
 		}
 	}
@@ -508,7 +522,7 @@ func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, error
 		}
 	}
 
-	return responseBytes, nil
+	return responseBytes, sentBytes, receivedBytes, nil
 }
 
 func transferInit(serverid int, protocoltype int, appname string, sessionid string) []byte {

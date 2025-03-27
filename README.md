@@ -111,14 +111,16 @@ func main() {
 
     // 连接服务器
     if err := c.Connect(ctx); err != nil {
-        log.Fatalf("连接失败: %v", err)
+        log.Printf("连接失败: %v", err)
     }
     defer c.Close()
 
     // 发送初始化请求（根据需要选择加密或非加密方式）
-    if err := c.SendInitRequestNoAES(); err != nil {
-        log.Fatalf("初始化请求失败: %v", err)
+    sentBytes, recvBytes, err := c.SendInitRequestNoAES()
+    if err != nil {
+        log.Printf("初始化请求失败: %v", err)
     }
+    log.Printf("初始化请求成功，发送: %d 字节，接收: %d 字节", sentBytes, recvBytes)
 
     // 准备HTTP请求内容
     content := "GET /index.html HTTP/1.1\r\n" +
@@ -126,11 +128,12 @@ func main() {
         "Connection: close\r\n\r\n"
 
     // 发送传输请求（根据需要选择加密或非加密方式）
-    response, err := c.SendTransferRequestNoAES(content)
+    response, sentBytes, recvBytes, err := c.SendTransferRequestNoAES(content)
     if err != nil {
-        log.Fatalf("传输请求失败: %v", err)
+        log.Printf("传输请求失败: %v", err)
     }
 
+    log.Printf("传输请求成功，发送: %d 字节，接收: %d 字节", sentBytes, recvBytes)
     log.Printf("收到响应: %s", string(response))
 }
 ```
@@ -247,28 +250,27 @@ func (c *TransferClient) Connect(ctx context.Context) error
 
 ```go
 func (c *TransferClient) SendInitRequest() error
-func (c *TransferClient) SendInitRequestNoAES() error
+func (c *TransferClient) SendInitRequestNoAES() (int, int, error)
 ```
 
-向服务器发送初始化请求。提供了加密和非加密两个版本。
-
-返回值:
-- `error`: 如果请求成功返回nil，否则返回错误信息
+`SendInitRequestNoAES` 返回发送字节数、接收字节数以及可能的错误。
 
 #### 发送传输请求
 
 ```go
 func (c *TransferClient) SendTransferRequest(content string) ([]byte, error)
-func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, error)
+func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, int, int, error)
 ```
 
-发送传输请求并返回服务器响应。提供了加密和非加密两个版本。
+`SendTransferRequestNoAES` 返回响应数据、发送字节数、接收字节数以及可能的错误。
 
 参数:
 - `content`: 要发送的请求内容，通常是HTTP请求字符串
 
 返回值:
 - `[]byte`: 服务器的响应数据
+- `int`: 发送的字节数
+- `int`: 接收的字节数
 - `error`: 如果请求成功返回nil，否则返回错误信息
 
 #### 关闭连接
@@ -377,4 +379,20 @@ MIT License
 
 1. 查看详细的[使用说明文档](./使用说明.md)
 2. 提交Issue报告问题
-3. 通过Pull Request贡献代码或文档改进 
+3. 通过Pull Request贡献代码或文档改进
+
+## 更新历史
+
+### 版本 1.0.3 (2024-XX-XX)
+
+- **新功能**: 添加了发送和接收字节数统计功能
+  - `SendInitRequestNoAES` 现在返回 `(int, int, error)`，分别表示发送字节数、接收字节数和错误
+  - `SendTransferRequestNoAES` 现在返回 `([]byte, int, int, error)`，分别表示响应数据、发送字节数、接收字节数和错误
+  - 可用于网络流量分析、性能监控和网络诊断
+
+- **改进**: RequestResult 结构体现在包含 SentBytes 和 ReceivedBytes 字段，用于跟踪总流量
+
+### 版本 1.0.0 (历史版本)
+
+- 初始版本发布
+- 提供基本的 QUIC 通信功能 

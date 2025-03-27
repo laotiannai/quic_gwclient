@@ -49,6 +49,8 @@ type RequestResult struct {
 	Error           error
 	ElapsedTime     time.Duration
 	AssertionResult bool
+	SentBytes       int64
+	ReceivedBytes   int64
 }
 
 // DefaultRequestOptions 返回默认的请求选项
@@ -132,13 +134,14 @@ func SendQuicRequest(opts *RequestOptions) *RequestResult {
 	defer c.Close()
 
 	// 发送初始化请求
-	if err := c.SendInitRequestNoAES(); err != nil {
+	sentInitBytes, receivedInitBytes, err := c.SendInitRequestNoAES()
+	if err != nil {
 		result.Error = fmt.Errorf("初始化请求失败: %v", err)
 		return result
 	}
 
 	// 发送传输请求
-	response, err := c.SendTransferRequestNoAES(opts.MessageContent)
+	response, sentTransBytes, receivedTransBytes, err := c.SendTransferRequestNoAES(opts.MessageContent)
 	if err != nil {
 		result.Error = fmt.Errorf("传输请求失败: %v", err)
 		return result
@@ -149,6 +152,8 @@ func SendQuicRequest(opts *RequestOptions) *RequestResult {
 	result.ResponseBytes = response
 	result.Response = string(response)
 	result.ElapsedTime = time.Since(startTime)
+	result.SentBytes = int64(sentInitBytes + sentTransBytes)
+	result.ReceivedBytes = int64(receivedInitBytes + receivedTransBytes)
 
 	// 检查响应断言
 	if opts.ResponseAssertion != "" {
