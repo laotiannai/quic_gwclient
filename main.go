@@ -5,7 +5,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -14,7 +13,7 @@ import (
 
 func main() {
 	// 启用调试模式
-	// client.SetDebugMode(true)
+	client.SetDebugMode(true)
 
 	// 设置日志格式
 	log.SetFlags(log.Ldate | log.Ltime | log.Lmicroseconds)
@@ -24,10 +23,11 @@ func main() {
 
 	// 创建客户端配置
 	config := &client.Config{
-		ServerID:   8903,
+		ServerID:   381634,
 		ServerName: "stresss_H5_nginx",
 		SessionID:  "abac17fd-e8e0-4600-b822-09f5755148d7",
 		// 设置重试参数
+		// EnableConnectRetry: false,
 		MaxRetries:    15,                     // 最大重试15次
 		RetryDelay:    500 * time.Millisecond, // 每次重试延迟500ms
 		RetryInterval: 2 * time.Second,        // 重试间隔2s
@@ -83,7 +83,7 @@ func main() {
 
 	// 发送传输请求
 	log.Println("===== 开始发送传输请求 =====")
-	content := "GET /50M.apk HTTP/1.1\r\n" +
+	content := "GET /index.html HTTP/1.1\r\n" +
 		"User-Agent: PostmanRuntime/7.26.8\r\n" +
 		"Accept: */*\r\n" +
 		"Postman-Token: d2aeeecc-1612-4518-94ef-e882b0767b44\r\n" +
@@ -108,25 +108,12 @@ func main() {
 	// }
 
 	// 示例3：使用简化的下载方法
-	filePath, err := c.DownloadFile(content, "./downloads", "simple", false)
+	filePath, err := c.DownloadFile(content, "./downloads", "simple")
 	if err != nil {
 		log.Fatalf("简化下载失败: %v", err)
 	}
 
-	if strings.HasPrefix(filePath, "memory:") {
-		// 从虚拟路径中提取实际路径
-		actualPath := filePath[len("memory:"):]
-		// 从路径中提取MD5部分
-		parts := strings.Split(actualPath, "_")
-		if len(parts) > 1 {
-			md5Part := strings.TrimSuffix(parts[1], ".bin")
-			log.Printf("收到数据大小: %d 字节", len(md5Part))
-		} else {
-			log.Printf("收到数据")
-		}
-	} else {
-		log.Printf("文件已保存到: %s", filePath)
-	}
+	log.Printf("文件已保存到: %s", filePath)
 
 	// 等待中断信号
 	log.Println("客户端运行中，按Ctrl+C退出...")

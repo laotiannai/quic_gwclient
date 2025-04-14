@@ -138,23 +138,27 @@ func main() {
 }
 ```
 
-#### 带重试机制的使用示例
+#### 启用连接重试的使用示例
 
 ```go
-func connectWithRetry(c *client.TransferClient, ctx context.Context) error {
-    maxRetries := 3
-    for i := 0; i < maxRetries; i++ {
-        err := c.Connect(ctx)
-        if err == nil {
-            return nil
-        }
-        
-        log.Printf("连接失败 (尝试 %d/%d): %v", i+1, maxRetries, err)
-        if i < maxRetries-1 {
-            time.Sleep(time.Duration(i+1) * 2 * time.Second)
-        }
-    }
-    return fmt.Errorf("连接失败，已重试%d次", maxRetries)
+// 创建支持连接重试的客户端配置
+config := &client.Config{
+    ServerID:          8903,
+    ServerName:        "stresss_H5_nginx",
+    SessionID:         "abac17fd-e8e0-4600-b822-09f5755148d7",
+    EnableConnectRetry: true, // 启用连接重试
+    MaxRetries:        5,     // 自定义重试次数
+    RetryDelay:        300 * time.Millisecond, // 自定义重试延迟
+}
+
+c := client.NewTransferClient(serverAddr, config)
+ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+defer cancel()
+
+// 连接服务器（将自动尝试不同的协议组合）
+if err := c.Connect(ctx); err != nil {
+    log.Printf("所有连接尝试均失败: %v", err)
+    return
 }
 ```
 
@@ -259,7 +263,10 @@ func (c *TransferClient) SendInitRequestNoAES() (int, int, error)
 
 ```go
 func (c *TransferClient) SendTransferRequest(content string) ([]byte, error)
-func (c *TransferRequestNoAES` 返回响应数据、发送字节数、接收字节数以及可能的错误。
+func (c *TransferClient) SendTransferRequestNoAES(content string) ([]byte, int, int, error)
+```
+
+`SendTransferRequestNoAES` 返回响应数据、发送字节数、接收字节数以及可能的错误。
 
 参数:
 - `content`: 要发送的请求内容，通常是HTTP请求字符串
@@ -275,7 +282,7 @@ func (c *TransferRequestNoAES` 返回响应数据、发送字节数、接收字�
 ```go
 func (c *TransferClient) SendTransferRequestWithDownload(content string, options *DownloadOptions) (*DownloadResult, error)
 func (c *TransferClient) SendTransferRequestWithAESDownload(content string, options *DownloadOptions, initAESKey string) (*DownloadResult, error)
-func (c *TransferClient) DownloadFile(content string, saveDir string, fileNamePrefix string, saveToFile bool) (string, error)
+func (c *TransferClient) DownloadFile(content string, saveDir string, fileNamePrefix string) (string, error)
 ```
 
 这些方法用于处理大型数据传输和文件下载：
@@ -290,7 +297,6 @@ func (c *TransferClient) DownloadFile(content string, saveDir string, fileNamePr
 - `initAESKey`: AES加密方式使用的密钥
 - `saveDir`: 文件保存目录
 - `fileNamePrefix`: 保存文件名前缀
-- `saveToFile`: 是否将响应保存为文件
 
 返回值:
 - `*DownloadResult`: 下载结果，包含原始数据、处理后数据、字节统计和MD5值
@@ -306,8 +312,6 @@ type DownloadOptions struct {
     FileNamePrefix  string  // 文件名前缀
     MaxDownloadSize int64   // 最大下载大小（字节）
     MaxRetries      int     // 重试次数
-    ReadTimeout     time.Duration // 读取超时时间
-    DetectHTTP      bool    // 是否自动检测HTTP协议
 }
 
 type DownloadResult struct {
@@ -315,24 +319,14 @@ type DownloadResult struct {
     PureData        []byte  // 纯净响应数据（不包括头部）
     SentBytes       int     // 发送的字节数
     ReceivedBytes   int     // 接收的字节数 
-    FilePath        string  // 保存的文件路径（如果设置了SaveToFile）
+    FilePath        string  // 保存的文件路径
     MD5Sum          string  // 文件的MD5值
-    HTTPInfo        *HTTPResponseInfo // HTTP响应信息（如果是HTTP协议）
 }
 
 func DefaultDownloadOptions() *DownloadOptions
 ```
 
 `DefaultDownloadOptions` 返回默认的下载选项配置。
-
-**重要说明**:
-1. `SaveToFile` 参数控制是否将响应保存为本地文件：
-   - 设置为 `true` 时，会将响应保存到本地文件
-   - 设置为 `false` 时，不会保存文件，而是返回带有 "memory:" 前缀的虚拟路径
-2. 当 `DetectHTTP` 为 `true` 时，会自动检测和解析HTTP协议
-3. 文件路径格式：
-   - 保存文件时：`SaveDir/FileNamePrefix_MD5.bin`
-   - 不保存文件时：`memory:SaveDir/FileNamePrefix_MD5.bin`
 
 #### 关闭连接
 
@@ -347,15 +341,32 @@ func (c *TransferClient) Close() error
 
 ### Config
 
-客户端配置结构体。
+客户端配置对象，包含与服务器通信所需的各种配置项。
 
 ```go
 type Config struct {
-    ServerID   int    // 服务器ID，用于标识目标服务器
-    ServerName string // 服务器名称，用于服务器识别
-    SessionID  string // 会话ID，用于跟踪单个连接会话
+    ServerID   int           // 服务器ID，必填参数
+    ServerName string        // 服务器名称，必填参数
+    SessionID  string        // 会话ID，必填参数
+    
+    // 重试配置
+    MaxRetries    int           // 最大重试次数，默认10次
+    RetryDelay    time.Duration // 重试延迟时间，默认500ms
+    RetryInterval time.Duration // 重试间隔时间，默认2s
+    
+    // 连接配置
+    EnableConnectRetry bool     // 是否在连接失败时尝试不同的协议组合，默认false
 }
 ```
+
+参数说明:
+- `ServerID`: 目标服务器的ID，必填参数
+- `ServerName`: 目标服务器的名称，必填参数
+- `SessionID`: 会话ID，用于标识通信会话，必填参数
+- `MaxRetries`: 通信失败时的最大重试次数，默认为10次
+- `RetryDelay`: 重试之间的延迟时间，默认为500毫秒
+- `RetryInterval`: 重试间隔时间，默认为2秒
+- `EnableConnectRetry`: 是否在连接失败时尝试不同的协议组合，默认为false。设置为true时，客户端会尝试不同的协议组合以增加连接成功的可能性
 
 ### 错误处理
 

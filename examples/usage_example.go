@@ -72,6 +72,7 @@ func main() {
 		30*time.Second,
 		10*time.Second,
 		3,
+		false,
 		ipsInfo,
 	)
 
@@ -113,6 +114,7 @@ func main() {
 			30*time.Second,
 			10*time.Second,
 			3,
+			false,
 			info,
 		)
 

@@ -30,6 +30,7 @@ opts.SessionID = "abac17fd-e8e0-4600-b822-09f5755148d7"
 opts.ConnectTimeout = 30 * time.Second
 opts.ReadTimeout = 10 * time.Second
 opts.MaxRetries = 3
+opts.EnableConnectRetry = false // 禁用连接重试（默认）
 opts.MessageContent = "GET /index.html HTTP/1.1\r\n" +
     "User-Agent: PostmanRuntime/7.26.8\r\n" +
     "Accept: */*\r\n" +
@@ -45,6 +46,27 @@ if result.Error != nil {
     log.Printf("响应断言结果: %v", result.AssertionResult)
     log.Printf("响应内容 (长度: %d 字节):\n%s", len(result.ResponseBytes), result.Response)
 }
+```
+
+### 启用连接重试的配置
+
+```go
+// 创建请求选项，启用连接重试
+opts := client.DefaultRequestOptions()
+opts.ServerIP = "10.10.27.129"
+opts.ServerPort = "8002"
+opts.ServerID = 8903
+opts.ServerName = "stresss_H5_nginx"
+opts.SessionID = "abac17fd-e8e0-4600-b822-09f5755148d7"
+opts.ConnectTimeout = 30 * time.Second
+opts.ReadTimeout = 10 * time.Second
+opts.MaxRetries = 3
+opts.EnableConnectRetry = true // 启用连接重试
+opts.MessageContent = "GET /index.html HTTP/1.1\r\n" +
+    "User-Agent: PostmanRuntime/7.26.8\r\n" +
+    "Accept: */*\r\n" +
+    "Connection: close\r\n\r\n"
+opts.ResponseAssertion = "HTTP"
 ```
 
 ### 3. 从IPSServerInfo发送请求
@@ -66,6 +88,7 @@ result := client.SendQuicRequestFromIPSInfo(
     30*time.Second,
     10*time.Second,
     3,
+    false, // 不启用连接重试
     ipsInfo,
 )
 
@@ -96,6 +119,7 @@ for i, info := range ipsInfoList {
         30*time.Second,
         10*time.Second,
         3,
+        false, // 不启用连接重试
         info,
     )
     
@@ -145,6 +169,7 @@ type RequestOptions struct {
     TokenID        string
     JSessionID     string
     Connectors     string
+    EnableConnectRetry bool
 }
 ```
 

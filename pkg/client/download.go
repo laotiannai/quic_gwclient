@@ -146,6 +146,7 @@ func (c *TransferClient) SendTransferRequestWithDownload(content string, options
 
 	// 接收响应
 	var totalRawResponse []byte
+	var totalPureResponse []byte
 	var isComplete bool
 	var retries int
 	var requireContinue bool = true               // 始终需要继续接收数据，直到明确完成
@@ -163,7 +164,7 @@ func (c *TransferClient) SendTransferRequestWithDownload(content string, options
 			debugLog("设置读取超时失败: %v", err)
 		}
 
-		responseBuffer := make([]byte, 64*1024) // 使用更大的缓冲区
+		responseBuffer := make([]byte, 8*1024) // 使用更大的缓冲区
 		readBytes, err := c.stream.Read(responseBuffer)
 
 		if readBytes > 0 {
@@ -176,44 +177,6 @@ func (c *TransferClient) SendTransferRequestWithDownload(content string, options
 
 			result.ReceivedBytes += readBytes
 			chunk := responseBuffer[:readBytes]
-
-			// 分析接收到的数据包的内容
-			if DebugMode {
-				// 检查前20个字节，看是否符合协议格式
-				if readBytes >= 20 {
-					headBytes := chunk[:20]
-					tagBytes := headBytes[:4]
-					var tagStr string
-					if len(tagBytes) >= 4 {
-						tagStr = fmt.Sprintf("%c%c%c%c", tagBytes[0], tagBytes[1], tagBytes[2], tagBytes[3])
-					}
-					debugLog("数据包#%d头部: [%X], ASCII头部标记: %s", packetCount, headBytes, tagStr)
-
-					// 检查是否是有效的协议头
-					if len(tagBytes) >= 4 && tagBytes[0] == 69 && tagBytes[1] == 77 &&
-						tagBytes[2] == 77 && tagBytes[3] == 58 {
-						debugLog("数据包#%d有效的协议头标记EMM:", packetCount)
-					} else {
-						// 检查是否包含HTTP格式数据
-						isHTTP := false
-						if readBytes > 10 {
-							previewData := chunk
-							if len(previewData) > 50 {
-								previewData = previewData[:50]
-							}
-							if bytes.Contains(previewData, []byte("HTTP/")) {
-								isHTTP = true
-								debugLog("数据包#%d包含HTTP格式数据", packetCount)
-							}
-						}
-
-						if !isHTTP {
-							debugLog("数据包#%d没有有效的协议头标记或HTTP标记", packetCount)
-						}
-					}
-				}
-			}
-
 			totalRawResponse = append(totalRawResponse, chunk...)
 			debugLog("收到数据包 #%d: %d 字节, 总计已接收: %d 字节", packetCount, readBytes, result.ReceivedBytes)
 
@@ -224,6 +187,8 @@ func (c *TransferClient) SendTransferRequestWithDownload(content string, options
 
 			// 判断是否收到结束连接的标志（这部分逻辑可能需要保留）
 			respLen, cmd, _, _, _ := parseMessage(chunk, readBytes)
+			body := chunk[proto.RESPONSE_HEAD_LEN:]
+			totalPureResponse = append(totalPureResponse, body...)
 
 			if cmd == proto.EMM_COMMAND_LINK_CLOSE {
 				debugLog("收到关闭连接命令，停止接收")
@@ -338,150 +303,9 @@ func (c *TransferClient) SendTransferRequestWithDownload(content string, options
 
 	// 填充结果
 	result.RawData = totalRawResponse
-	fmt.Printf("totalRawResponse: %v\n", len(totalRawResponse))
-
-	// 处理数据，逐段去除协议包，并提取纯净数据
-	debugLog("开始解析和提取纯净响应数据...")
-
-	// 创建临时缓冲区以存储所有提取出的body内容
-	var pureDataBuffer []byte
-
-	// 创建临时变量保存待处理的数据
-	remainingRaw := totalRawResponse
-
-	// 循环处理，直到所有数据都被处理完
-	processCount := 0
-	totalBodySize := 0
-	for len(remainingRaw) > proto.RESPONSE_HEAD_LEN {
-		processCount++
-		debugLog("处理第%d段数据，当前剩余数据大小: %d 字节", processCount, len(remainingRaw))
-
-		// 输出头部信息以便诊断
-		if len(remainingRaw) >= 20 {
-			head := remainingRaw[:20]
-			tagBytes := head[:4]
-			var tagStr string
-			if len(tagBytes) >= 4 {
-				tagStr = fmt.Sprintf("%c%c%c%c", tagBytes[0], tagBytes[1], tagBytes[2], tagBytes[3])
-			}
-			debugLog("数据段头部(前20字节): [%X], ASCII头部: %s", head, tagStr)
-		}
-
-		// 解析当前数据段
-		respLen, cmd, dataLen, result, body := parseMessage(remainingRaw, len(remainingRaw))
-		debugLog("解析结果: respLen=%d, cmd=%d, dataLen=%d, result=%d, body长度=%d",
-			respLen, cmd, dataLen, result, len(body))
-
-		// 如果解析结果无效，尝试分析数据是否为原始HTTP数据
-		if respLen <= 0 || cmd == 0 {
-			debugLog("解析无效，可能是原始HTTP数据或协议标记错误")
-
-			// 尝试检测HTTP格式
-			httpPrefix := []byte("HTTP/")
-			httpIndex := bytes.Index(remainingRaw, httpPrefix)
-			if httpIndex >= 0 {
-				debugLog("在偏移量%d处发现HTTP头标记，将剩余数据作为HTTP数据处理", httpIndex)
-
-				// 将HTTP内容提取出来
-				httpData := remainingRaw[httpIndex:]
-				debugLog("提取的HTTP数据大小: %d 字节", len(httpData))
-
-				// 将HTTP数据添加到纯净数据
-				pureDataBuffer = append(pureDataBuffer, httpData...)
-				totalBodySize += len(httpData)
-				debugLog("添加HTTP数据到纯净数据缓冲区，当前累计纯净数据大小: %d 字节", len(pureDataBuffer))
-
-				// 结束解析
-				debugLog("将剩余所有数据作为HTTP内容处理完毕")
-				break
-			}
-
-			// 检查是否是二进制数据中存在协议头错位问题
-			// 检查前20个字节，看看是否存在有效的协议标记
-			var validTag bool = false
-			var validOffset int = -1
-
-			// 检查接下来的100个字节，寻找有效的协议头标记(EMM:)
-			maxScanLen := 100
-			if len(remainingRaw) < maxScanLen {
-				maxScanLen = len(remainingRaw)
-			}
-
-			for i := 1; i < maxScanLen-4; i++ {
-				// 检查是否是EMM:标记（头部标记的ASCII值）
-				if remainingRaw[i] == 69 && remainingRaw[i+1] == 77 &&
-					remainingRaw[i+2] == 77 && remainingRaw[i+3] == 58 {
-					validTag = true
-					validOffset = i
-					debugLog("在偏移量%d处找到有效的协议头标记", validOffset)
-					break
-				}
-			}
-
-			if validTag && validOffset > 0 {
-				debugLog("尝试从偏移量%d处重新解析协议数据", validOffset)
-				remainingRaw = remainingRaw[validOffset:]
-				continue
-			}
-
-			// 如果既不是HTTP也没找到有效协议头，尝试使用整个数据作为Body
-			debugLog("未发现协议头或HTTP标记，将剩余数据作为原始内容处理")
-			if len(remainingRaw) > 0 {
-				// 作为最后的尝试，将剩余所有数据作为响应体
-				pureDataBuffer = append(pureDataBuffer, remainingRaw...)
-				totalBodySize += len(remainingRaw)
-				debugLog("将剩余%d字节数据作为原始内容添加到结果中", len(remainingRaw))
-			}
-
-			// 结束解析
-			break
-		}
-
-		// 检查命令类型
-		if cmd == proto.EMM_COMMAND_LINK_CLOSE {
-			debugLog("检测到链接关闭命令，停止解析")
-			break
-		}
-
-		// 检查是否解析有效
-		if respLen <= 0 || respLen > len(remainingRaw) {
-			debugLog("无效的响应长度: %d，停止解析", respLen)
-			break
-		}
-
-		// 将body添加到纯净数据缓冲区
-		if len(body) > 0 {
-			pureDataBuffer = append(pureDataBuffer, []byte(body)...)
-			totalBodySize += len(body)
-			debugLog("添加body到纯净数据缓冲区，当前body大小: %d 字节，累计纯净数据大小: %d 字节",
-				len(body), len(pureDataBuffer))
-		} else {
-			debugLog("当前段没有body数据，跳过添加")
-		}
-
-		// 检查数据是否还有剩余
-		segmentSize := proto.RESPONSE_HEAD_LEN + respLen
-		if segmentSize >= len(remainingRaw) {
-			debugLog("当前段数据处理完毕，无剩余数据")
-			break
-		}
-
-		// 移除已处理的数据段
-		remainingRaw = remainingRaw[segmentSize:]
-		debugLog("移除已处理的数据段，剩余数据大小: %d 字节", len(remainingRaw))
-	}
-
-	debugLog("响应解析完成，共处理 %d 个数据段，提取纯净数据 %d 字节", processCount, totalBodySize)
-
-	// 将提取的纯净数据转换为字符串并设置到结果中
-	if len(pureDataBuffer) > 0 {
-		result.PureData = string(pureDataBuffer)
-		debugLog("成功提取到纯净数据，总大小: %d 字节", len(result.PureData))
-	} else {
-		result.PureData = ""
-		debugLog("未提取到有效的纯净数据")
-	}
-
+	result.PureData = string(totalPureResponse)
+	fmt.Println("result.PureData111111111111111111: ", result.PureData)
+	// fmt.Println("result.RawData1111111111111111111: ", result.RawData)
 	debugLog("数据统计，原始数据: %d 字节, 纯净数据: %d 字节", len(result.RawData), len(result.PureData))
 	debugLog("原始数据与纯净数据的比例: %.2f%%", float64(len(result.PureData))/float64(len(result.RawData))*100)
 
@@ -489,48 +313,188 @@ func (c *TransferClient) SendTransferRequestWithDownload(content string, options
 	if len(result.PureData) > 0 && (result.HTTPInfo == nil || result.HTTPInfo.Body == nil || len(result.HTTPInfo.Body) == 0) {
 		if isHTTPResponse(result.PureData) {
 			debugLog("检测到HTTP响应，尝试解析")
-			httpInfo, err := parseHTTPResponse(result.PureData)
-			if err == nil && httpInfo != nil {
-				result.HTTPInfo = httpInfo
-				debugLog("成功解析HTTP响应, 状态码: %d, 响应体: %d 字节",
-					httpInfo.StatusCode, len(httpInfo.Body))
 
-				// 额外检查：如果HTTP响应体为空但Content-Length不为0，重新尝试提取
-				if len(httpInfo.Body) == 0 {
-					if cl, exists := httpInfo.Headers["Content-Length"]; exists {
-						contentLength, _ := strconv.Atoi(cl)
-						if contentLength > 0 {
-							debugLog("HTTP响应体为空但Content-Length为%d，尝试直接提取", contentLength)
-							// 尝试直接从PureData中提取响应体
-							headerBodySplit := strings.Index(result.PureData, "\r\n\r\n")
-							if headerBodySplit != -1 && headerBodySplit+4 < len(result.PureData) {
-								directBody := result.PureData[headerBodySplit+4:]
-								debugLog("直接提取的响应体长度: %d", len(directBody))
-								if len(directBody) > 0 {
-									httpInfo.Body = []byte(directBody)
-									debugLog("更新HTTP响应体，新大小: %d 字节", len(httpInfo.Body))
+			// 特别处理：只接收一次数据的情况，可能需要额外跳过协议头
+			if packetCount == 1 {
+				debugLog("只接收到一个数据包，尝试特殊处理")
+
+				// 打印前100字节，便于调试
+				if len(result.PureData) > 0 {
+					printHexData("PureData前100字节", []byte(result.PureData), 100)
+				}
+
+				headerBodySplit := strings.Index(result.PureData, "\r\n\r\n")
+				if headerBodySplit != -1 && headerBodySplit+4+proto.RESPONSE_HEAD_LEN < len(result.PureData) {
+					// 先提取HTTP头部
+					httpHeaders := result.PureData[:headerBodySplit]
+					debugLog("HTTP头部长度: %d 字节", len(httpHeaders))
+
+					// 解析HTTP状态码
+					statusCode := 0
+					statusMatch := regexp.MustCompile(`HTTP/\d\.\d\s+(\d+)\s+`).FindStringSubmatch(httpHeaders)
+					if len(statusMatch) >= 2 {
+						statusCode, _ = strconv.Atoi(statusMatch[1])
+					}
+
+					// 提取内容长度
+					contentLength := -1
+					contentLengthMatch := regexp.MustCompile(`Content-Length: (\d+)`).FindStringSubmatch(httpHeaders)
+					if len(contentLengthMatch) >= 2 {
+						contentLength, _ = strconv.Atoi(contentLengthMatch[1])
+					}
+
+					// 计算标准HTTP体的起始位置和特殊处理后的起始位置
+					normalBodyStart := headerBodySplit + 4
+					specialBodyStart := headerBodySplit + 4 + proto.RESPONSE_HEAD_LEN
+
+					debugLog("标准HTTP体起始位置: %d, 特殊处理后起始位置: %d", normalBodyStart, specialBodyStart)
+
+					// 前后取出20字节，查看周围内容
+					if normalBodyStart > 20 && normalBodyStart+20 < len(result.PureData) {
+						surroundingData := result.PureData[normalBodyStart-20 : normalBodyStart+20]
+						printHexData("标准HTTP体起始点周围数据", []byte(surroundingData), 40)
+					}
+
+					if specialBodyStart > 20 && specialBodyStart+20 < len(result.PureData) {
+						surroundingData := result.PureData[specialBodyStart-20 : specialBodyStart+20]
+						printHexData("特殊处理后HTTP体起始点周围数据", []byte(surroundingData), 40)
+					}
+
+					// 直接将HTTP头部后面的内容加上额外的RESPONSE_HEAD_LEN字节
+					body := ""
+					if specialBodyStart < len(result.PureData) {
+						body = result.PureData[specialBodyStart:]
+					}
+
+					debugLog("特殊处理：提取HTTP头部后，跳过额外的%d字节作为响应体起始点", proto.RESPONSE_HEAD_LEN)
+					debugLog("状态码: %d, Content-Length: %d, 实际body长度: %d", statusCode, contentLength, len(body))
+
+					// 比较特殊处理前后body的前20字节
+					normalBody := ""
+					if normalBodyStart < len(result.PureData) {
+						normalBody = result.PureData[normalBodyStart:]
+					}
+
+					if len(normalBody) > 0 && len(body) > 0 {
+						normalBodyLen := 20
+						if len(normalBody) < normalBodyLen {
+							normalBodyLen = len(normalBody)
+						}
+
+						specialBodyLen := 20
+						if len(body) < specialBodyLen {
+							specialBodyLen = len(body)
+						}
+
+						printHexData("标准处理body前20字节", []byte(normalBody[:normalBodyLen]), normalBodyLen)
+						printHexData("特殊处理body前20字节", []byte(body[:specialBodyLen]), specialBodyLen)
+					}
+
+					// 创建HTTP响应结构
+					httpInfo := &HTTPResponseInfo{
+						StatusCode: statusCode,
+						Headers:    make(map[string]string),
+						Body:       []byte(body),
+						IsHTTP:     true,
+					}
+
+					// 解析头部字段
+					headerLines := strings.Split(httpHeaders, "\r\n")
+					for i := 1; i < len(headerLines); i++ { // 跳过状态行
+						line := headerLines[i]
+						if line == "" {
+							continue
+						}
+						parts := strings.SplitN(line, ":", 2)
+						if len(parts) == 2 {
+							key := strings.TrimSpace(parts[0])
+							value := strings.TrimSpace(parts[1])
+							httpInfo.Headers[key] = value
+						}
+					}
+
+					// 如果提取的内容长度与内容长度头匹配，则使用此特殊处理的结果
+					if contentLength > 0 && contentLength <= len(body) {
+						debugLog("内容长度匹配，采用特殊处理结果")
+						result.HTTPInfo = httpInfo
+					} else {
+						debugLog("内容长度不匹配，尝试常规解析")
+						regularHttpInfo, err := parseHTTPResponse(result.PureData)
+						if err == nil && regularHttpInfo != nil {
+							result.HTTPInfo = regularHttpInfo
+
+							// 如果常规解析得到的body也为空，则尝试使用特殊处理的body
+							if len(regularHttpInfo.Body) == 0 && len(body) > 0 {
+								debugLog("常规解析得到空body，使用特殊处理的body")
+								regularHttpInfo.Body = []byte(body)
+							}
+						} else {
+							// 常规解析失败，使用特殊处理的结果
+							debugLog("常规解析失败，使用特殊处理结果: %v", err)
+							result.HTTPInfo = httpInfo
+						}
+					}
+				} else {
+					// 特殊处理失败，尝试常规解析
+					debugLog("无法进行特殊处理，尝试常规解析")
+					httpInfo, err := parseHTTPResponse(result.PureData)
+					if err == nil && httpInfo != nil {
+						result.HTTPInfo = httpInfo
+					} else {
+						debugLog("解析HTTP响应失败: %v", err)
+					}
+				}
+			} else {
+				// 多个数据包的情况，使用常规解析
+				httpInfo, err := parseHTTPResponse(result.PureData)
+				if err == nil && httpInfo != nil {
+					result.HTTPInfo = httpInfo
+					debugLog("成功解析HTTP响应, 状态码: %d, 响应体: %d 字节",
+						httpInfo.StatusCode, len(httpInfo.Body))
+
+					// 额外检查：如果HTTP响应体为空但Content-Length不为0，重新尝试提取
+					if len(httpInfo.Body) == 0 {
+						if cl, exists := httpInfo.Headers["Content-Length"]; exists {
+							contentLength, _ := strconv.Atoi(cl)
+							if contentLength > 0 {
+								debugLog("HTTP响应体为空但Content-Length为%d，尝试直接提取", contentLength)
+								// 尝试直接从PureData中提取响应体
+								headerBodySplit := strings.Index(result.PureData, "\r\n\r\n")
+								if headerBodySplit != -1 && headerBodySplit+4 < len(result.PureData) {
+									directBody := result.PureData[headerBodySplit+4:]
+									debugLog("直接提取的响应体长度: %d", len(directBody))
+									if len(directBody) > 0 {
+										httpInfo.Body = []byte(directBody)
+										debugLog("更新HTTP响应体，新大小: %d 字节", len(httpInfo.Body))
+									}
 								}
 							}
 						}
 					}
-				}
 
-				// 如果状态码和响应体大小都是预期的值，但响应体仍然为空，尝试使用全部纯净数据
-				if httpInfo.StatusCode == 200 && len(httpInfo.Body) == 0 {
-					expectedSize := 0
-					if cl, exists := httpInfo.Headers["Content-Length"]; exists {
-						expectedSize, _ = strconv.Atoi(cl)
-					}
+					// 如果状态码和响应体大小都是预期的值，但响应体仍然为空，尝试使用全部纯净数据
+					if httpInfo.StatusCode == 200 && len(httpInfo.Body) == 0 {
+						expectedSize := 0
+						if cl, exists := httpInfo.Headers["Content-Length"]; exists {
+							expectedSize, _ = strconv.Atoi(cl)
+						}
 
-					if expectedSize > 0 && len(result.PureData) >= expectedSize {
-						debugLog("HTTP状态码为200，但响应体为空，使用全部纯净数据作为响应体")
-						// 尝试使用全部纯净数据
-						httpInfo.Body = []byte(result.PureData)
-						debugLog("使用纯净数据作为响应体，大小: %d 字节", len(httpInfo.Body))
+						if expectedSize > 0 && len(result.PureData) >= expectedSize {
+							debugLog("HTTP状态码为200，但响应体为空，使用全部纯净数据作为响应体")
+							// 尝试使用全部纯净数据
+							httpInfo.Body = []byte(result.PureData)
+							debugLog("使用纯净数据作为响应体，大小: %d 字节", len(httpInfo.Body))
+						}
 					}
+				} else {
+					debugLog("解析HTTP响应失败: %v", err)
 				}
-			} else {
-				debugLog("解析HTTP响应失败: %v", err)
+			}
+
+			// 无论使用哪种方法，如果解析成功，记录一下结果
+			if result.HTTPInfo != nil {
+				debugLog("最终HTTP解析结果 - 状态码: %d, 响应体大小: %d 字节",
+					result.HTTPInfo.StatusCode, len(result.HTTPInfo.Body))
 			}
 		} else {
 			debugLog("未检测到HTTP响应，将作为二进制数据处理")
@@ -538,16 +502,16 @@ func (c *TransferClient) SendTransferRequestWithDownload(content string, options
 	}
 
 	// 详细记录各种数据大小
-	debugLog("数据统计信息:")
-	debugLog("- 收到数据包: %d 个\n", packetCount)
-	debugLog("- 原始数据总大小: %d 字节\n", len(result.RawData))
-	debugLog("- 解析后纯净数据大小: %d 字节\n", len(result.PureData))
+	fmt.Println("数据统计信息:")
+	fmt.Printf("- 收到数据包: %d 个\n", packetCount)
+	fmt.Printf("- 原始数据总大小: %d 字节\n", len(result.RawData))
+	fmt.Printf("- 解析后纯净数据大小: %d 字节\n", len(result.PureData))
 	if result.HTTPInfo != nil {
-		debugLog("- HTTP状态码: %d\n", result.HTTPInfo.StatusCode)
-		debugLog("- HTTP响应体大小: %d 字节\n", len(result.HTTPInfo.Body))
+		fmt.Printf("- HTTP状态码: %d\n", result.HTTPInfo.StatusCode)
+		fmt.Printf("- HTTP响应体大小: %d 字节\n", len(result.HTTPInfo.Body))
 		for key, value := range result.HTTPInfo.Headers {
 			if key == "Content-Type" || key == "Content-Length" {
-				debugLog("- HTTP头: %s: %s\n", key, value)
+				fmt.Printf("- HTTP头: %s: %s\n", key, value)
 			}
 		}
 	}
@@ -569,6 +533,9 @@ func (c *TransferClient) SendTransferRequestWithDownload(content string, options
 	result.MD5Sum = fmt.Sprintf("%x", md5sum)
 	debugLog("计算内容MD5: %s", result.MD5Sum)
 
+	// 检查并清理EMM包头
+	cleanedContent := cleanEMMHeader([]byte(contentToSave))
+
 	// 根据SaveToFile选项决定是否保存文件
 	if options.SaveToFile {
 		saveDir := options.SaveDir
@@ -589,12 +556,12 @@ func (c *TransferClient) SendTransferRequestWithDownload(content string, options
 		debugLog("文件将保存为: %s", filePath)
 
 		// 写入文件（即使内容为空也创建文件）
-		if err := os.WriteFile(filePath, []byte(contentToSave), 0644); err != nil {
+		if err := os.WriteFile(filePath, cleanedContent, 0644); err != nil {
 			debugLog("保存文件失败: %v", err)
 			return result, fmt.Errorf("保存文件失败: %v", err)
 		}
 
-		debugLog("文件保存成功: %s (%d 字节)", filePath, len(contentToSave))
+		debugLog("文件保存成功: %s (%d 字节)", filePath, len(cleanedContent))
 	} else {
 		debugLog("不保存文件，仅返回内存中的数据")
 	}
@@ -603,22 +570,30 @@ func (c *TransferClient) SendTransferRequestWithDownload(content string, options
 }
 
 // DownloadFile 使用指定的请求下载文件并保存到本地
-// saveToFile - 是否保存文件到本地磁盘
-func (c *TransferClient) DownloadFile(content string, saveDir string, fileNamePrefix string, saveToFile bool) (string, error) {
-	debugLog("使用简化下载函数，保存到目录: %s, 前缀: %s, 是否保存文件: %v", saveDir, fileNamePrefix, saveToFile)
+func (c *TransferClient) DownloadFile(content string, saveDir string, fileNamePrefix string) (string, error) {
+	debugLog("使用简化下载函数，保存到目录: %s, 前缀: %s", saveDir, fileNamePrefix)
 
 	options := DefaultDownloadOptions()
-	options.SaveToFile = saveToFile // 根据参数决定是否保存文件
+	options.SaveToFile = true
 	options.SaveDir = saveDir
 	options.FileNamePrefix = fileNamePrefix
-	options.DetectHTTP = false // 默认不检测HTTP协议
+	options.DetectHTTP = true // 保证检测HTTP响应
 
 	// 增加最大重试次数和读取超时时间，以确保能处理服务器切包返回的情况
 	options.MaxRetries = 5
 	options.ReadTimeout = 60 * time.Second
 
-	debugLog("设置下载选项: SaveToFile=%v, SaveDir=%s, FileNamePrefix=%s, MaxRetries=%d, ReadTimeout=%v",
-		options.SaveToFile, saveDir, fileNamePrefix, options.MaxRetries, options.ReadTimeout)
+	debugLog("设置下载选项: SaveToFile=true, SaveDir=%s, FileNamePrefix=%s, MaxRetries=%d, ReadTimeout=%v",
+		saveDir, fileNamePrefix, options.MaxRetries, options.ReadTimeout)
+
+	// 确保目录存在
+	if saveDir != "" {
+		if err := os.MkdirAll(saveDir, 0755); err != nil {
+			debugLog("创建保存目录失败: %v", err)
+			return "", fmt.Errorf("创建保存目录失败: %v", err)
+		}
+		debugLog("保存目录已创建或已存在: %s", saveDir)
+	}
 
 	result, err := c.SendTransferRequestWithDownload(content, options)
 	if err != nil {
@@ -626,13 +601,59 @@ func (c *TransferClient) DownloadFile(content string, saveDir string, fileNamePr
 		return "", err
 	}
 
-	// 如果设置了保存文件，返回实际文件路径
-	if saveToFile {
-		return result.FilePath, nil
-	} else {
-		// 不保存文件时，返回虚拟路径
-		return "memory:" + result.FilePath, nil
+	fmt.Println("下载结果数据统计:")
+	fmt.Printf("- 发送字节数: %d\n", result.SentBytes)
+	fmt.Printf("- 接收字节数: %d\n", result.ReceivedBytes)
+	fmt.Printf("- 原始数据大小: %d 字节\n", len(result.RawData))
+	fmt.Printf("- 纯净数据大小: %d 字节\n", len(result.PureData))
+	if result.HTTPInfo != nil {
+		fmt.Printf("- HTTP状态码: %d\n", result.HTTPInfo.StatusCode)
+		fmt.Printf("- HTTP响应体大小: %d 字节\n", len(result.HTTPInfo.Body))
 	}
+
+	if result.FilePath == "" {
+		fmt.Println("警告: 未能设置文件路径，但下载可能已成功")
+
+		// 确定要保存的内容
+		var contentToSave string
+		if result.HTTPInfo != nil && result.HTTPInfo.IsHTTP {
+			contentToSave = string(result.HTTPInfo.Body)
+			fmt.Printf("使用HTTP响应体作为保存内容: %d 字节\n", len(contentToSave))
+		} else if len(result.PureData) > 0 {
+			contentToSave = result.PureData
+			fmt.Printf("使用纯净数据作为保存内容: %d 字节\n", len(contentToSave))
+		} else if len(result.RawData) > 0 {
+			contentToSave = string(result.RawData)
+			fmt.Printf("使用原始数据作为保存内容: %d 字节\n", len(contentToSave))
+		} else {
+			fmt.Println("所有数据均为空，将创建空文件")
+			contentToSave = ""
+		}
+
+		// 为内容生成MD5
+		md5sum := md5.Sum([]byte(contentToSave))
+		md5str := fmt.Sprintf("%x", md5sum)
+		if len(contentToSave) == 0 {
+			md5str = "empty"
+		}
+
+		// 生成文件名
+		fileName := fmt.Sprintf("%s_%s.bin", fileNamePrefix, md5str)
+		filePath := filepath.Join(saveDir, fileName)
+		fmt.Printf("将数据保存到: %s\n", filePath)
+
+		// 使用保存函数保存内容
+		if err := saveContentToFile(filePath, []byte(contentToSave)); err != nil {
+			fmt.Printf("创建文件失败: %v\n", err)
+			return "", fmt.Errorf("保存文件失败: %v", err)
+		}
+
+		fmt.Printf("文件创建成功: %s\n", filePath)
+		return filePath, nil
+	}
+
+	debugLog("文件下载成功: %s", result.FilePath)
+	return result.FilePath, nil
 }
 
 // 判断数据是否为HTTP响应
@@ -1016,4 +1037,113 @@ func parseChunkedBody(chunkedBody []byte) ([]byte, error) {
 
 	debugLog("分块编码解析完成，解析后数据大小: %d 字节", len(result))
 	return result, nil
+}
+
+// 打印数据的十六进制表示，用于调试
+func printHexData(name string, data []byte, maxLen int) {
+	if len(data) == 0 {
+		debugLog("%s: 空数据", name)
+		return
+	}
+
+	if len(data) > maxLen {
+		data = data[:maxLen]
+	}
+
+	var hexStr strings.Builder
+	var asciiStr strings.Builder
+
+	hexStr.WriteString(fmt.Sprintf("%s (长度=%d):\n", name, len(data)))
+
+	for i, b := range data {
+		// 每16个字节一行
+		if i%16 == 0 && i > 0 {
+			hexStr.WriteString("  ")
+			hexStr.WriteString(asciiStr.String())
+			hexStr.WriteString("\n")
+			asciiStr.Reset()
+		}
+
+		// 写入十六进制表示
+		hexStr.WriteString(fmt.Sprintf(" %02X", b))
+
+		// 写入ASCII表示（对于可打印字符）
+		if b >= 32 && b <= 126 {
+			asciiStr.WriteByte(b)
+		} else {
+			asciiStr.WriteString(".")
+		}
+	}
+
+	// 补齐最后一行
+	remainder := len(data) % 16
+	if remainder > 0 {
+		// 补齐空格
+		for i := 0; i < (16-remainder)*3; i++ {
+			hexStr.WriteString(" ")
+		}
+		hexStr.WriteString("  ")
+		hexStr.WriteString(asciiStr.String())
+	}
+
+	debugLog("%s", hexStr.String())
+}
+
+// 检查并清理EMM包头
+func cleanEMMHeader(data []byte) []byte {
+	// 检查数据长度是否足够
+	if len(data) < 24 { // 至少需要包含"EMM:"和20字节的头部
+		return data
+	}
+
+	// 查找所有的"EMM:"标记
+	emmMarker := []byte{0x45, 0x4D, 0x4D, 0x3A} // "EMM:"的ASCII码
+	var cleanedData []byte
+	var lastEnd int = 0
+	var foundHeaders int = 0
+
+	for i := 0; i <= len(data)-4; i++ {
+		if bytes.Equal(data[i:i+4], emmMarker) {
+			// 确认这是一个真正的EMM包头：检查后面是否有足够的20字节空间
+			if i+20 <= len(data) {
+				// 添加EMM标记前的数据到结果
+				if i > lastEnd {
+					cleanedData = append(cleanedData, data[lastEnd:i]...)
+				}
+				// 跳过EMM包头（20字节）
+				lastEnd = i + 20
+				foundHeaders++
+				debugLog("在位置 %d 发现并移除EMM包头", i)
+			}
+		}
+	}
+
+	// 添加剩余数据
+	if lastEnd < len(data) {
+		cleanedData = append(cleanedData, data[lastEnd:]...)
+	}
+
+	// 如果没有找到EMM包头或者清理后数据为空，返回原始数据
+	if foundHeaders == 0 || len(cleanedData) == 0 {
+		debugLog("未发现EMM包头或清理后数据为空，保持原始数据不变")
+		return data
+	}
+
+	debugLog("清理了 %d 个EMM包头，数据大小从 %d 减少到 %d 字节", foundHeaders, len(data), len(cleanedData))
+	return cleanedData
+}
+
+// 保存内容到文件，并进行EMM包头检查
+func saveContentToFile(filePath string, content []byte) error {
+	// 清理EMM包头
+	cleanedContent := cleanEMMHeader(content)
+
+	// 写入文件
+	if err := os.WriteFile(filePath, cleanedContent, 0644); err != nil {
+		debugLog("保存文件失败: %v", err)
+		return fmt.Errorf("保存文件失败: %v", err)
+	}
+
+	debugLog("文件保存成功: %s (%d 字节)", filePath, len(cleanedContent))
+	return nil
 }

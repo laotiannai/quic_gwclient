@@ -14,9 +14,10 @@ type RequestOptions struct {
 	ServerPort string
 
 	// 超时和重试配置
-	ConnectTimeout time.Duration
-	ReadTimeout    time.Duration
-	MaxRetries     int
+	ConnectTimeout     time.Duration
+	ReadTimeout        time.Duration
+	MaxRetries         int
+	EnableConnectRetry bool // 是否在连接失败时尝试不同的协议组合
 
 	// 服务器信息配置
 	ServerID   int
@@ -56,16 +57,17 @@ type RequestResult struct {
 // DefaultRequestOptions 返回默认的请求选项
 func DefaultRequestOptions() *RequestOptions {
 	return &RequestOptions{
-		ServerIP:          "127.0.0.1",
-		ServerPort:        "8002",
-		ConnectTimeout:    30 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		MaxRetries:        3,
-		ServerID:          0,
-		ServerName:        "",
-		SessionID:         "",
-		MessageContent:    "",
-		ResponseAssertion: "",
+		ServerIP:           "127.0.0.1",
+		ServerPort:         "8002",
+		ConnectTimeout:     30 * time.Second,
+		ReadTimeout:        10 * time.Second,
+		MaxRetries:         3,
+		EnableConnectRetry: false,
+		ServerID:           0,
+		ServerName:         "",
+		SessionID:          "",
+		MessageContent:     "",
+		ResponseAssertion:  "",
 	}
 }
 
@@ -97,9 +99,10 @@ func SendQuicRequest(opts *RequestOptions) *RequestResult {
 
 	// 创建客户端配置
 	config := &Config{
-		ServerID:   opts.ServerID,
-		ServerName: opts.ServerName,
-		SessionID:  opts.SessionID,
+		ServerID:           opts.ServerID,
+		ServerName:         opts.ServerName,
+		SessionID:          opts.SessionID,
+		EnableConnectRetry: opts.EnableConnectRetry,
 	}
 
 	// 创建客户端
@@ -166,27 +169,28 @@ func SendQuicRequest(opts *RequestOptions) *RequestResult {
 }
 
 // SendQuicRequestFromIPSInfo 从IPSServerInfo发送QUIC请求
-func SendQuicRequestFromIPSInfo(serverIP string, serverPort string, connectTimeout time.Duration, readTimeout time.Duration, maxRetries int, ipsInfo *IPSServerInfo) *RequestResult {
+func SendQuicRequestFromIPSInfo(serverIP string, serverPort string, connectTimeout time.Duration, readTimeout time.Duration, maxRetries int, enableConnectRetry bool, ipsInfo *IPSServerInfo) *RequestResult {
 	opts := &RequestOptions{
-		ServerIP:          serverIP,
-		ServerPort:        serverPort,
-		ConnectTimeout:    connectTimeout,
-		ReadTimeout:       readTimeout,
-		MaxRetries:        maxRetries,
-		ServerID:          ipsInfo.ServerID,
-		ServerName:        ipsInfo.ServerName,
-		SessionID:         ipsInfo.SessionID,
-		MessageContent:    ipsInfo.MessageContent,
-		ResponseAssertion: ipsInfo.ResponseAssert,
-		AppName:           ipsInfo.AppName,
-		Username:          ipsInfo.Username,
-		ClientAddr:        ipsInfo.ClientAddr,
-		DeviceID:          ipsInfo.DeviceID,
-		DeviceType:        ipsInfo.DeviceType,
-		AppVersion:        ipsInfo.AppVersion,
-		TokenID:           ipsInfo.TokenID,
-		JSessionID:        ipsInfo.JSessionId,
-		Connectors:        ipsInfo.Connectors,
+		ServerIP:           serverIP,
+		ServerPort:         serverPort,
+		ConnectTimeout:     connectTimeout,
+		ReadTimeout:        readTimeout,
+		MaxRetries:         maxRetries,
+		EnableConnectRetry: enableConnectRetry,
+		ServerID:           ipsInfo.ServerID,
+		ServerName:         ipsInfo.ServerName,
+		SessionID:          ipsInfo.SessionID,
+		MessageContent:     ipsInfo.MessageContent,
+		ResponseAssertion:  ipsInfo.ResponseAssert,
+		AppName:            ipsInfo.AppName,
+		Username:           ipsInfo.Username,
+		ClientAddr:         ipsInfo.ClientAddr,
+		DeviceID:           ipsInfo.DeviceID,
+		DeviceType:         ipsInfo.DeviceType,
+		AppVersion:         ipsInfo.AppVersion,
+		TokenID:            ipsInfo.TokenID,
+		JSessionID:         ipsInfo.JSessionId,
+		Connectors:         ipsInfo.Connectors,
 	}
 
 	return SendQuicRequest(opts)

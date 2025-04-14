@@ -121,7 +121,7 @@ func DownloadExample() {
 
 	// 示例4：使用简化的下载方法，自动检测HTTP
 	log.Println("示例4: 使用简化的下载方法")
-	filePath, err := client.DownloadFile(httpRequest, "./downloads", "simple", true)
+	filePath, err := client.DownloadFile(httpRequest, "./downloads", "simple")
 	if err != nil {
 		log.Fatalf("简化下载失败: %v", err)
 	}

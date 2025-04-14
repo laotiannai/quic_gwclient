@@ -36,6 +36,8 @@ type Config struct {
 	MaxRetries    int           // 最大重试次数，默认10次
 	RetryDelay    time.Duration // 重试延迟时间，默认500ms
 	RetryInterval time.Duration // 重试间隔时间，默认2s
+	// 连接配置
+	EnableConnectRetry bool // 是否在连接失败时重试，默认false
 }
 
 // NewTransferClient 创建新的传输客户端
@@ -50,6 +52,7 @@ func NewTransferClient(serverAddr string, config *Config) *TransferClient {
 	if config.RetryInterval <= 0 {
 		config.RetryInterval = 2 * time.Second
 	}
+	// EnableConnectRetry默认为false，不需要设置默认值
 
 	return &TransferClient{
 		serverAddr: serverAddr,
@@ -69,9 +72,11 @@ func (c *TransferClient) Connect(ctx context.Context) error {
 	}
 
 	// 检查网络连接
-	if err := checkNetworkConnectivity(host, port); err != nil {
-		if err := checkUDPConnectivity(host, port); err != nil {
-			return fmt.Errorf("网络连接检查失败，服务器可能不可达: %v", err)
+	if c.config.EnableConnectRetry {
+		if err := checkNetworkConnectivity(host, port); err != nil {
+			if err := checkUDPConnectivity(host, port); err != nil {
+				return fmt.Errorf("网络连接检查失败，服务器可能不可达: %v", err)
+			}
 		}
 	}
 
@@ -153,24 +158,34 @@ func (c *TransferClient) Connect(ctx context.Context) error {
 	var conn quic.Connection
 	var connectionError error
 
-	// 首先尝试使用 quic.DialAddr
-	for _, protocols := range protocolCombinations {
-		tlsConf.NextProtos = protocols
-		conn, err = quic.DialAddr(ctx, c.serverAddr, tlsConf, quicConfig)
-		if err == nil {
-			break
-		}
-		connectionError = err
-	}
-
-	// 如果所有协议组合都失败，尝试使用 quic.DialAddrEarly
-	if conn == nil {
+	if c.config.EnableConnectRetry {
+		// 启用连接重试逻辑：尝试不同的协议组合
+		// 首先尝试使用 quic.DialAddr
 		for _, protocols := range protocolCombinations {
 			tlsConf.NextProtos = protocols
-			conn, err = quic.DialAddrEarly(ctx, c.serverAddr, tlsConf, quicConfig)
+			conn, err = quic.DialAddr(ctx, c.serverAddr, tlsConf, quicConfig)
 			if err == nil {
 				break
 			}
+			connectionError = err
+		}
+
+		// 如果所有协议组合都失败，尝试使用 quic.DialAddrEarly
+		if conn == nil {
+			for _, protocols := range protocolCombinations {
+				tlsConf.NextProtos = protocols
+				conn, err = quic.DialAddrEarly(ctx, c.serverAddr, tlsConf, quicConfig)
+				if err == nil {
+					break
+				}
+				connectionError = err
+			}
+		}
+	} else {
+		// 不启用连接重试逻辑：只尝试第一种协议组合
+		tlsConf.NextProtos = protocolCombinations[0]
+		conn, err = quic.DialAddr(ctx, c.serverAddr, tlsConf, quicConfig)
+		if err != nil {
 			connectionError = err
 		}
 	}
